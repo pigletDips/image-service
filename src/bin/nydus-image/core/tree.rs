@@ -267,7 +267,6 @@ impl<'a> MetadataTreeBuilder<'a> {
         } else {
             PathBuf::from("/")
         };
-
         let child_count = inode.get_child_count();
         let mut children = Vec::with_capacity(child_count as usize);
         event_tracer!("load_from_parent_bootstrap", +child_count);

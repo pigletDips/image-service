@@ -58,9 +58,9 @@ const EROFS_INODE_LAYOUT_COMPACT: u16 = 0;
 // 64-byte on-disk inode
 const EROFS_INODE_LAYOUT_EXTENDED: u16 = 1;
 // Bit flag indicating whether the inode is chunked or not.
-const EROFS_CHUNK_FORMAT_INDEXES_FLAG: u16 = 0x0020;
+pub const EROFS_CHUNK_FORMAT_INDEXES_FLAG: u16 = 0x0020;
 // Encoded chunk size (log2(chunk_size) - EROFS_BLOCK_BITS).
-const EROFS_CHUNK_FORMAT_SIZE_MASK: u16 = 0x001F;
+pub const EROFS_CHUNK_FORMAT_SIZE_MASK: u16 = 0x001F;
 /// Checksum of superblock, compatible with EROFS versions prior to Linux kernel 5.5.
 #[allow(dead_code)]
 const EROFS_FEATURE_COMPAT_SB_CHKSUM: u32 = 0x0000_0001;

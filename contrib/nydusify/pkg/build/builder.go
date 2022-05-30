@@ -113,13 +113,18 @@ func (builder *Builder) Run(option BuilderOption) error {
 		"--bootstrap",
 		option.BootstrapPath,
 		"--log-level",
-		"warn",
+		"debug",
 		"--whiteout-spec",
 		option.WhiteoutSpec,
 		"--output-json",
 		option.OutputJSONPath,
 		"--blob",
 		option.BlobPath,
+		"--fs-version",
+		"6",
+		"--disable-check",
+		"--log-file",
+		"/home/heshang.wq/workplace/image-service/v6.log",
 	)
 
 	if len(option.PrefetchPatterns) > 0 {

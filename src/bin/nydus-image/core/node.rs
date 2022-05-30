@@ -25,8 +25,8 @@ use nydus_utils::{
     div_round_up, round_down_4k, round_up, try_round_up_4k, ByteSize,
 };
 use rafs::metadata::cached_v5::{CachedChunkInfoV5, CachedInodeV5};
-use rafs::metadata::direct_v5::{DirectChunkInfoV5, OndiskInodeWrapper};
-use rafs::metadata::direct_v6::DirectChunkInfoV6;
+use rafs::metadata::direct_v5::DirectChunkInfoV5;
+use rafs::metadata::direct_v6::{DirectChunkInfoV6, OndiskInodeWrapper};
 use rafs::metadata::layout::v5::{
     RafsV5ChunkInfo, RafsV5Inode, RafsV5InodeFlags, RafsV5InodeWrapper,
 };
@@ -1240,7 +1240,7 @@ impl InodeWrapper {
         if let Some(inode) = inode.as_any().downcast_ref::<CachedInodeV5>() {
             InodeWrapper::V5(to_rafsv5_inode(inode))
         } else if let Some(inode) = inode.as_any().downcast_ref::<OndiskInodeWrapper>() {
-            InodeWrapper::V5(to_rafsv5_inode(inode))
+            InodeWrapper::V6(to_rafsv5_inode(inode))
         } else {
             panic!("unknown inode information struct");
         }
