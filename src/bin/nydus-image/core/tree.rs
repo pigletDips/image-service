@@ -20,7 +20,7 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 
 use anyhow::Result;
-use rafs::metadata::layout::{bytes_to_os_str, RafsXAttrs, RAFS_ROOT_INODE};
+use rafs::metadata::layout::{bytes_to_os_str, RafsXAttrs};
 use rafs::metadata::{Inode, RafsInode, RafsSuper};
 
 use super::chunk_dict::ChunkDict;
@@ -55,7 +55,7 @@ impl Tree {
         let mut tree = Tree::new(root_node);
 
         tree.children = timing_tracer!(
-            { tree_builder.load_children(RAFS_ROOT_INODE, None, chunk_dict, true) },
+            { tree_builder.load_children(128, None, chunk_dict, true) },
             "load_tree_from_bootstrap"
         )?;
 
