@@ -562,7 +562,9 @@ impl Node {
 
         // update all the inodes's offset according to the new 'meta_addr'.
         self.offset = self.offset - orig_meta_addr + meta_addr;
-        self.dirents_offset = self.dirents_offset + meta_addr - orig_meta_addr;
+        if self.is_dir() || self.is_symlink() {
+            self.dirents_offset = self.dirents_offset + meta_addr - orig_meta_addr;
+        }
         if self.is_dir() {
             // the 1st 4k block after dir inode.
             let mut dirent_off = self.dirents_offset;
@@ -1210,11 +1212,12 @@ impl Node {
         };
 
         trace!(
-            "{:?} dir offset {} ctx offset {} d_size {} datalayout {}",
+            "{:?} inode offset {} ctx offset {} d_size {} dirents_offset {} datalayout {}",
             self.name(),
             self.offset,
             bootstrap_ctx.offset,
             d_size,
+            self.dirents_offset,
             self.v6_datalayout
         );
     }

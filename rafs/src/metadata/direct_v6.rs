@@ -31,7 +31,7 @@ use std::sync::Arc;
 
 use arc_swap::{ArcSwap, Guard};
 
-use crate::metadata::layout::MetaRange;
+use crate::metadata::layout::{MetaRange, RAFS_ROOT_INODE};
 use crate::metadata::{
     layout::{
         bytes_to_os_str,
@@ -180,19 +180,22 @@ impl DirectSuperBlockV6 {
             offset,
             blocks_count,
             parent_inode: None,
+            name: None,
         }))
     }
 
-    fn inode_wrapper_with_parent(
+    fn inode_wrapper_with_info(
         &self,
         nid: u64,
         parent_inode: Inode,
+        name: OsString
     ) -> Result<Arc<OndiskInodeWrapper>> {
         self.inode_wrapper(nid).map(|inode| {
             let mut inode = inode;
             // # Safety
             // inode always valid
             Arc::get_mut(&mut inode).unwrap().parent_inode = Some(parent_inode);
+            Arc::get_mut(&mut inode).unwrap().name = Some(name);
             inode
         })
     }
@@ -354,6 +357,7 @@ pub struct OndiskInodeWrapper {
     // this time parent_inode field is None, the other Inodes are created through OndiskInodeWrapper,
     // this field will be filled with inode_wrapper_with_parent
     parent_inode: Option<Inode>,
+    name: Option<OsString>,
 }
 
 impl OndiskInodeWrapper {
@@ -719,7 +723,7 @@ impl RafsInode for OndiskInodeWrapper {
         };
 
         if let Some(nid) = target {
-            Ok(self.mapping.inode_wrapper_with_parent(nid, self.ino())? as Arc<dyn RafsInode>)
+            Ok(self.mapping.inode_wrapper_with_info(nid, self.ino(), OsString::from(name))? as Arc<dyn RafsInode>)
         } else {
             Err(enoent!())
         }
@@ -757,9 +761,14 @@ impl RafsInode for OndiskInodeWrapper {
             let de = self
                 .get_entry(i as usize, (idx - cur_idx) as usize)
                 .map_err(err_invalidate_data)?;
+    
+            let d_name = self
+                .entry_name(i as usize, (idx - cur_idx) as usize, entries_count as usize)
+                .map_err(err_invalidate_data)?;
+
             let nid = de.e_nid;
             return Ok(
-                self.mapping.inode_wrapper_with_parent(nid, self.ino())? as Arc<dyn RafsInode>
+                self.mapping.inode_wrapper_with_info(nid, self.ino(), OsString::from(d_name))? as Arc<dyn RafsInode>
             );
         }
 
@@ -785,8 +794,6 @@ impl RafsInode for OndiskInodeWrapper {
 
             child_cnt += entries_count as u32;
         }
-
-        debug!("child_cnt: {}, size: {}", child_cnt, self.size());
         child_cnt - 2
     }
 
@@ -842,7 +849,7 @@ impl RafsInode for OndiskInodeWrapper {
 
                 let nid = de.e_nid;
                 let inode =
-                    self.mapping.inode_wrapper_with_parent(nid, self.ino())? as Arc<dyn RafsInode>;
+                    self.mapping.inode_wrapper_with_info(nid, self.ino(), OsString::from(name))? as Arc<dyn RafsInode>;
                 trace!("found file {:?}, nid {}", name, nid);
                 cur_offset += 1;
                 match handler(Some(inode), name.to_os_string(), nid, cur_offset) {
@@ -894,8 +901,8 @@ impl RafsInode for OndiskInodeWrapper {
 
         let mut size = size_of::<RafsV6XattrIbodyHeader>() as u32;
 
-        while size as usize
-            <= total as usize * size_of::<RafsV6XattrEntry>() - size_of::<RafsV6XattrIbodyHeader>()
+        while (size as usize)
+            < ((total as usize) * size_of::<RafsV6XattrEntry>() + size_of::<RafsV6XattrIbodyHeader>())
         {
             let e = unsafe { &*(cur as *const RafsV6XattrEntry) };
 
@@ -937,6 +944,7 @@ impl RafsInode for OndiskInodeWrapper {
         if total == 0 {
             return Ok(xattrs);
         }
+        let inode = self.disk_inode();
         let m = self.mapping.state.load();
         let mut cur = unsafe {
             m.base
@@ -945,8 +953,8 @@ impl RafsInode for OndiskInodeWrapper {
 
         let mut size = size_of::<RafsV6XattrIbodyHeader>() as u32;
 
-        while size as usize
-            <= total as usize * size_of::<RafsV6XattrEntry>() - size_of::<RafsV6XattrIbodyHeader>()
+        while (size as usize)
+            < ((total as usize) * size_of::<RafsV6XattrEntry>() + size_of::<RafsV6XattrIbodyHeader>())
         {
             let e = unsafe { &*(cur as *const RafsV6XattrEntry) };
 
@@ -978,7 +986,33 @@ impl RafsInode for OndiskInodeWrapper {
     /// # Safety
     /// It depends on Self::validate() to ensure valid memory layout.
     fn name(&self) -> OsString {
-        OsString::new()
+        match &self.name {
+            Some(name) => name.clone(),
+            None => {
+                debug_assert!(self.is_dir());
+                let cur_ino = self.ino();
+                if cur_ino == RAFS_ROOT_INODE {
+                    return OsString::from("")
+                }
+                let parent_inode = self.mapping.inode_wrapper(self.parent()).unwrap();
+                let mut curr_name = OsString::from("");
+
+                // EROFS packs dot and dotdot, so skip them two.
+                parent_inode.walk_children_inodes(2, &mut |inode: Option<Arc<dyn RafsInode>>,
+                            name: OsString,
+                            ino,
+                            offset| {
+                    if cur_ino == ino {
+                        curr_name = name;
+                        return Ok(PostWalkAction::Break);
+                    }
+                    Ok(PostWalkAction::Continue)
+                })
+                .unwrap();
+                debug_assert!(curr_name != OsString::from(""));
+                curr_name
+            }
+        }
     }
 
     // RafsV5 flags, not used by v6, return 0
