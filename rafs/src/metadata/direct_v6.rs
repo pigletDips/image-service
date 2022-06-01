@@ -724,6 +724,14 @@ impl RafsInode for OndiskInodeWrapper {
             // `e_nameoff` is offset from each single block?
             let head_name_offset = head_entry.e_nameoff;
             let entries_count = head_name_offset / size_of::<RafsV6Dirent>() as u16;
+            debug!(
+                "Dir ino: {}, cur block: {}, total blocks: {}, entries count: {}, head name offset: {}",
+                inode.ino(),
+                i,
+                blocks_count,
+                entries_count,
+                head_name_offset,
+            );
 
             let d_name = self
                 .entry_name(i as usize, 0, entries_count as usize)
@@ -811,7 +819,7 @@ impl RafsInode for OndiskInodeWrapper {
 
     #[inline]
     fn get_child_count(&self) -> u32 {
-        if self.is_reg() {
+        if !self.is_dir() {
             return div_round_up(self.size(), self.chunk_size() as u64) as u32;
         }
 
@@ -1064,17 +1072,17 @@ impl RafsInode for OndiskInodeWrapper {
     }
 
     fn is_dir(&self) -> bool {
-        self.mode_format_bits() & libc::S_IFDIR as u32 != 0
+        self.mode_format_bits() == libc::S_IFDIR as u32
     }
 
     /// Check whether the inode is a symlink.
     fn is_symlink(&self) -> bool {
-        self.mode_format_bits() & libc::S_IFLNK as u32 != 0
+        self.mode_format_bits() == libc::S_IFLNK as u32
     }
 
     /// Check whether the inode is a regular file.
     fn is_reg(&self) -> bool {
-        self.mode_format_bits() & libc::S_IFREG as u32 != 0
+        self.mode_format_bits() == libc::S_IFREG as u32
     }
 
     /// Check whether the inode is a hardlink.

@@ -564,15 +564,14 @@ impl Bootstrap {
         // When using nid 0 as root nid,
         // the root directory will not be shown by glibc's getdents/readdir.
         // Because in some OS, ino == 0 represents corresponding file is deleted.
-        let orig_meta_addr =
-            bootstrap_ctx.nodes[0].offset - RAFS_ROOT_INODE * EROFS_INODE_SLOT_SIZE as u64;
+        let orig_meta_addr = bootstrap_ctx.nodes[0].offset - EROFS_BLOCK_SIZE;
         let meta_addr = if blob_table_size > 0 {
             align_offset(
                 blob_table_offset + blob_table_size + prefetch_table_size as u64,
                 EROFS_BLOCK_SIZE as u64,
             )
         } else {
-            align_offset(orig_meta_addr, EROFS_BLOCK_SIZE as u64)
+            orig_meta_addr
         };
 
         let root_nid = calculate_nid(
