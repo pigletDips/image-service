@@ -549,7 +549,6 @@ impl Node {
         chunk_cache: &mut dyn ChunkDict,
     ) -> Result<usize> {
         let mut inode = self.new_rafsv6_inode();
-
         inode.set_size(self.inode.size());
         // FIXME
         inode.set_ino(self.inode.ino() as u32);
@@ -571,6 +570,7 @@ impl Node {
 
             inode.set_u((dirent_off / EROFS_BLOCK_SIZE) as u32);
             // Dump inode
+            trace!("{:?} dir inode: offset {}", self.target, self.offset);
             f_bootstrap
                 .seek(SeekFrom::Start(self.offset))
                 .context("failed seek for dir inode")?;
@@ -591,14 +591,14 @@ impl Node {
             let mut used: u64 = 0;
             let mut dirents: Vec<(RafsV6Dirent, &OsString)> = Vec::new();
 
-            trace!("self.dirents.len {}", self.dirents.len());
+            trace!("{:?} self.dirents.len {}", self.target, self.dirents.len());
             // fill dir blocks one by one
             for (offset, name, file_type) in self.dirents.iter() {
                 let len = name.len() + size_of::<RafsV6Dirent>();
                 if used + len as u64 > EROFS_BLOCK_SIZE {
                     // write to bootstrap
                     for (entry, name) in dirents.iter_mut() {
-                        trace!("nameoff {}", nameoff);
+                        trace!("{:?} nameoff {}", name, nameoff);
                         entry.set_name_offset(nameoff as u16);
                         dir_data.extend(entry.as_ref());
                         entry_names.push(*name);
@@ -660,11 +660,11 @@ impl Node {
             //     entry_names.clear();
             // }
 
-            trace!("used {} dir size {}", used, self.inode.size());
+            trace!("{:?} used {} dir size {}", self.target, used, self.inode.size());
             // dump tail part if any
             if used > 0 {
                 for (entry, name) in dirents.iter_mut() {
-                    trace!("tail nameoff {}", nameoff);
+                    trace!("{:?} tail nameoff {}", name, nameoff);
                     entry.set_name_offset(nameoff as u16);
                     dir_data.extend(entry.as_ref());
                     entry_names.push(*name);

@@ -77,7 +77,7 @@ impl Bootstrap {
         nodes.push(tree.node.clone());
         self.build_rafs(ctx, bootstrap_ctx, tree, &mut nodes)?;
 
-        if ctx.fs_version.is_v6() {
+        if ctx.fs_version.is_v6() && !bootstrap_ctx.layered {
             self.update_dirents(&mut nodes, tree, root_offset);
         }
         bootstrap_ctx.nodes = nodes;
@@ -257,7 +257,6 @@ impl Bootstrap {
         if !node.is_dir() {
             return;
         }
-
         // dot & dotdot
         node.dirents
             .push((node.offset, OsString::from("."), libc::S_IFDIR));
@@ -573,12 +572,12 @@ impl Bootstrap {
         } else {
             orig_meta_addr
         };
-
+        
         let root_nid = calculate_nid(
             bootstrap_ctx.nodes[0].offset - orig_meta_addr + meta_addr,
             meta_addr,
         );
-        debug_assert!(root_nid == RAFS_ROOT_INODE);
+        //debug_assert!(root_nid == RAFS_ROOT_INODE);
 
         // Dump superblock
         let mut sb = RafsV6SuperBlock::new();

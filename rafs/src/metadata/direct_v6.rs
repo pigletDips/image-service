@@ -31,7 +31,7 @@ use std::sync::Arc;
 
 use arc_swap::{ArcSwap, Guard};
 
-use crate::metadata::layout::{MetaRange, RAFS_ROOT_INODE};
+use crate::metadata::layout::MetaRange;
 use crate::metadata::{
     layout::{
         bytes_to_os_str,
@@ -1037,8 +1037,8 @@ impl RafsInode for OndiskInodeWrapper {
             None => {
                 debug_assert!(self.is_dir());
                 let cur_ino = self.ino();
-                if cur_ino == RAFS_ROOT_INODE {
-                    return OsString::from("");
+                if cur_ino == 128 {
+                    return OsString::from("")
                 }
                 let parent_inode = self.mapping.inode_wrapper(self.parent()).unwrap();
                 let mut curr_name = OsString::from("");
@@ -1072,17 +1072,17 @@ impl RafsInode for OndiskInodeWrapper {
     }
 
     fn is_dir(&self) -> bool {
-        self.mode_format_bits() == libc::S_IFDIR as u32
+        self.mode_format_bits() == (libc::S_IFDIR as u32)
     }
 
     /// Check whether the inode is a symlink.
     fn is_symlink(&self) -> bool {
-        self.mode_format_bits() == libc::S_IFLNK as u32
+        self.mode_format_bits() == (libc::S_IFLNK as u32)
     }
 
     /// Check whether the inode is a regular file.
     fn is_reg(&self) -> bool {
-        self.mode_format_bits() == libc::S_IFREG as u32
+        self.mode_format_bits() == (libc::S_IFREG as u32)
     }
 
     /// Check whether the inode is a hardlink.

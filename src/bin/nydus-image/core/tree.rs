@@ -49,7 +49,7 @@ impl Tree {
     /// Load a `Tree` from a bootstrap file, and optionally caches chunk information.
     pub fn from_bootstrap<T: ChunkDict>(rs: &RafsSuper, chunk_dict: &mut T) -> Result<Self> {
         let tree_builder = MetadataTreeBuilder::new(&rs);
-        let root_inode = rs.get_inode(RAFS_ROOT_INODE, true)?;
+        let root_inode = rs.get_inode(128, true)?;
         let root_node =
             MetadataTreeBuilder::parse_node(&rs, root_inode.as_ref(), PathBuf::from("/"))?;
         let mut tree = Tree::new(root_node);
