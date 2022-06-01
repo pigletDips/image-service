@@ -188,7 +188,7 @@ impl DirectSuperBlockV6 {
         &self,
         nid: u64,
         parent_inode: Inode,
-        name: OsString
+        name: OsString,
     ) -> Result<Arc<OndiskInodeWrapper>> {
         self.inode_wrapper(nid).map(|inode| {
             let mut inode = inode;
@@ -295,13 +295,14 @@ impl RafsSuperInodes for DirectSuperBlockV6 {
         Ok(wrapper as Arc<dyn RafsInode>)
     }
 
+    /// Always return Ok(true) for RAFS v6
     fn validate_digest(
         &self,
         _inode: Arc<dyn RafsInode>,
         _recursive: bool,
         _digester: Algorithm,
     ) -> Result<bool> {
-        todo!()
+        Ok(true)
     }
 }
 
@@ -620,7 +621,35 @@ impl OndiskInodeWrapper {
 impl RafsInode for OndiskInodeWrapper {
     #[allow(clippy::collapsible_if)]
     fn validate(&self, _inode_count: u64, chunk_size: u64) -> Result<()> {
-        todo!()
+        // TODO: please help to review/enhance this and all other validate(), otherwise there's
+        // always security risks because the image bootstrap may be provided by untrusted parties.
+        let state = self.mapping.state.load();
+        let inode = self.disk_inode();
+
+        if inode.nlink() == 0 {
+            return Err(ebadf!(format!(
+                "inode validation failure, inode {:?}",
+                inode
+            )));
+        }
+
+        let xattr_size = self.xattr_size();
+
+        if self.is_reg() {
+            if state.meta.is_chunk_dict() {
+                // chunk-dict doesn't support chunk_count check
+                return Err(std::io::Error::from_raw_os_error(libc::EOPNOTSUPP));
+            }
+            // TODO add other validations for reg file
+        } else if self.is_dir() {
+            // TODO add validation for dir file
+        } else if self.is_symlink() {
+            if self.size() == 0 {
+                return Err(einval!("invalid symlink target"));
+            }
+        }
+        // TODO add validation for hard link file
+        Ok(())
     }
 
     fn get_entry(&self) -> Entry {
@@ -659,7 +688,7 @@ impl RafsInode for OndiskInodeWrapper {
 
     /// Check whether the inode has extended attributes.
     fn has_xattr(&self) -> bool {
-        todo!()
+        self.disk_inode().xattr_inline_count() > 0
     }
 
     /// Get symlink target of the inode.
@@ -723,7 +752,10 @@ impl RafsInode for OndiskInodeWrapper {
         };
 
         if let Some(nid) = target {
-            Ok(self.mapping.inode_wrapper_with_info(nid, self.ino(), OsString::from(name))? as Arc<dyn RafsInode>)
+            Ok(self
+                .mapping
+                .inode_wrapper_with_info(nid, self.ino(), OsString::from(name))?
+                as Arc<dyn RafsInode>)
         } else {
             Err(enoent!())
         }
@@ -761,15 +793,17 @@ impl RafsInode for OndiskInodeWrapper {
             let de = self
                 .get_entry(i as usize, (idx - cur_idx) as usize)
                 .map_err(err_invalidate_data)?;
-    
+
             let d_name = self
                 .entry_name(i as usize, (idx - cur_idx) as usize, entries_count as usize)
                 .map_err(err_invalidate_data)?;
 
             let nid = de.e_nid;
-            return Ok(
-                self.mapping.inode_wrapper_with_info(nid, self.ino(), OsString::from(d_name))? as Arc<dyn RafsInode>
-            );
+            return Ok(self.mapping.inode_wrapper_with_info(
+                nid,
+                self.ino(),
+                OsString::from(d_name),
+            )? as Arc<dyn RafsInode>);
         }
 
         Err(enoent!("invalid child index"))
@@ -777,13 +811,13 @@ impl RafsInode for OndiskInodeWrapper {
 
     #[inline]
     fn get_child_count(&self) -> u32 {
+        if self.is_reg() {
+            return div_round_up(self.size(), self.chunk_size() as u64) as u32;
+        }
+
         let mut child_cnt = 0;
         let inode = self.disk_inode();
         let blocks_count = div_round_up(self.size(), EROFS_BLOCK_SIZE);
-        if !self.is_dir() {
-            // && inode.format() >> EROFS_I_VERSION_BITS == EROFS_INODE_CHUNK_BASED {
-            return 0;
-        }
         for i in 0..blocks_count {
             let head_entry = self
                 .get_entry(i as usize, 0)
@@ -849,7 +883,9 @@ impl RafsInode for OndiskInodeWrapper {
 
                 let nid = de.e_nid;
                 let inode =
-                    self.mapping.inode_wrapper_with_info(nid, self.ino(), OsString::from(name))? as Arc<dyn RafsInode>;
+                    self.mapping
+                        .inode_wrapper_with_info(nid, self.ino(), OsString::from(name))?
+                        as Arc<dyn RafsInode>;
                 trace!("found file {:?}, nid {}", name, nid);
                 cur_offset += 1;
                 match handler(Some(inode), name.to_os_string(), nid, cur_offset) {
@@ -902,7 +938,8 @@ impl RafsInode for OndiskInodeWrapper {
         let mut size = size_of::<RafsV6XattrIbodyHeader>() as u32;
 
         while (size as usize)
-            < ((total as usize) * size_of::<RafsV6XattrEntry>() + size_of::<RafsV6XattrIbodyHeader>())
+            < ((total as usize) * size_of::<RafsV6XattrEntry>()
+                + size_of::<RafsV6XattrIbodyHeader>())
         {
             let e = unsafe { &*(cur as *const RafsV6XattrEntry) };
 
@@ -954,7 +991,8 @@ impl RafsInode for OndiskInodeWrapper {
         let mut size = size_of::<RafsV6XattrIbodyHeader>() as u32;
 
         while (size as usize)
-            < ((total as usize) * size_of::<RafsV6XattrEntry>() + size_of::<RafsV6XattrIbodyHeader>())
+            < ((total as usize) * size_of::<RafsV6XattrEntry>()
+                + size_of::<RafsV6XattrIbodyHeader>())
         {
             let e = unsafe { &*(cur as *const RafsV6XattrEntry) };
 
@@ -992,23 +1030,24 @@ impl RafsInode for OndiskInodeWrapper {
                 debug_assert!(self.is_dir());
                 let cur_ino = self.ino();
                 if cur_ino == RAFS_ROOT_INODE {
-                    return OsString::from("")
+                    return OsString::from("");
                 }
                 let parent_inode = self.mapping.inode_wrapper(self.parent()).unwrap();
                 let mut curr_name = OsString::from("");
 
                 // EROFS packs dot and dotdot, so skip them two.
-                parent_inode.walk_children_inodes(2, &mut |inode: Option<Arc<dyn RafsInode>>,
-                            name: OsString,
-                            ino,
-                            offset| {
-                    if cur_ino == ino {
-                        curr_name = name;
-                        return Ok(PostWalkAction::Break);
-                    }
-                    Ok(PostWalkAction::Continue)
-                })
-                .unwrap();
+                parent_inode
+                    .walk_children_inodes(
+                        2,
+                        &mut |inode: Option<Arc<dyn RafsInode>>, name: OsString, ino, offset| {
+                            if cur_ino == ino {
+                                curr_name = name;
+                                return Ok(PostWalkAction::Break);
+                            }
+                            Ok(PostWalkAction::Continue)
+                        },
+                    )
+                    .unwrap();
                 debug_assert!(curr_name != OsString::from(""));
                 curr_name
             }
@@ -1025,17 +1064,17 @@ impl RafsInode for OndiskInodeWrapper {
     }
 
     fn is_dir(&self) -> bool {
-        self.mode_format_bits() == libc::S_IFDIR as u32
+        self.mode_format_bits() & libc::S_IFDIR as u32 != 0
     }
 
     /// Check whether the inode is a symlink.
     fn is_symlink(&self) -> bool {
-        self.mode_format_bits() == libc::S_IFLNK as u32
+        self.mode_format_bits() & libc::S_IFLNK as u32 != 0
     }
 
     /// Check whether the inode is a regular file.
     fn is_reg(&self) -> bool {
-        self.mode_format_bits() == libc::S_IFREG as u32
+        self.mode_format_bits() & libc::S_IFREG as u32 != 0
     }
 
     /// Check whether the inode is a hardlink.
@@ -1059,9 +1098,7 @@ impl RafsInode for OndiskInodeWrapper {
 
     /// Get real device number of the inode.
     fn rdev(&self) -> u32 {
-        let inode = self.disk_inode();
-
-        inode.union()
+        self.disk_inode().union()
     }
 
     /// Get project id associated with the inode.
