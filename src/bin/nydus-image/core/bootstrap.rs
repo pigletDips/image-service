@@ -142,7 +142,7 @@ impl Bootstrap {
         if parent.is_dir() {
             parent.inode.set_child_index(index);
             parent.inode.set_child_count(tree.children.len() as u32);
-            if ctx.fs_version.is_v6() {
+            if ctx.fs_version.is_v6() && !bootstrap_ctx.layered {
                 parent.dir_set_v6_offset(bootstrap_ctx, tree.node.get_dir_d_size(tree)?)?;
             }
         }
