@@ -17,6 +17,7 @@
 /// before making use of any bootstrap, especially we are using them in memory-mapped mode. The
 /// rule is to call validate() after creating any data structure from the on-disk bootstrap.
 use std::any::Any;
+use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::{Result, SeekFrom};
@@ -30,6 +31,7 @@ use std::slice;
 use std::sync::Arc;
 
 use arc_swap::{ArcSwap, Guard};
+use std::cell::RefCell;
 
 use crate::metadata::layout::MetaRange;
 use crate::metadata::{
@@ -60,6 +62,10 @@ use storage::device::{
     BlobIoVec,
 };
 use storage::utils::readahead;
+
+thread_local! {
+    static CHUNK_DICT_MAP: RefCell<Option<HashMap<RafsV6InodeChunkAddr, Arc<dyn BlobChunkInfo>>>> = RefCell::new(None);
+}
 
 // Safe to Send/Sync because the underlying data structures are readonly
 unsafe impl Send for DirectSuperBlockV6 {}
@@ -152,6 +158,9 @@ pub struct DirectSuperBlockV6 {
 impl DirectSuperBlockV6 {
     /// Create a new instance of `DirectSuperBlockV6`.
     pub fn new(meta: &RafsSuperMeta, validate_digest: bool) -> Self {
+        CHUNK_DICT_MAP.with(|dict| {
+            *dict.borrow_mut() = None
+        });
         let state = DirectMappingState::new(meta, validate_digest);
 
         Self {
@@ -279,6 +288,33 @@ impl DirectSuperBlockV6 {
         self.state.store(Arc::new(state));
 
         Ok(())
+    }
+
+    fn load_chunk_map(&self) -> Result<HashMap<RafsV6InodeChunkAddr, Arc<dyn BlobChunkInfo>>> {
+        let mut chunk_dict: HashMap<RafsV6InodeChunkAddr, Arc<dyn BlobChunkInfo>> = HashMap::default();
+        let state = self.state.load();
+        let size = state.meta.chunk_table_size as usize;
+        if size == 0 {
+            return Ok(chunk_dict)
+        }
+        
+        let unit_size = size_of::<RafsV5ChunkInfo>();
+        if size % unit_size != 0 {
+            return Err(std::io::Error::from_raw_os_error(libc::EINVAL));
+        }
+
+        for idx in 0..(size / unit_size) {
+            let chunk = self.get_chunk_info(idx)?;
+
+            let mut v6_chunk = RafsV6InodeChunkAddr::new();
+            v6_chunk.set_blob_index((chunk.blob_index() + 1) as u8);
+            v6_chunk.set_blob_comp_index(chunk.id());
+            v6_chunk
+                .set_block_addr((chunk.uncompress_offset() / EROFS_BLOCK_SIZE) as u32);
+            chunk_dict.insert(v6_chunk, chunk);
+        }
+
+        Ok(chunk_dict)
     }
 }
 
@@ -918,17 +954,33 @@ impl RafsInode for OndiskInodeWrapper {
     /// It depends on Self::validate() to ensure valid memory layout.
     #[allow(clippy::cast_ptr_alignment)]
     fn get_chunk_info(&self, idx: u32) -> Result<Arc<dyn BlobChunkInfo>> {
-        // let state = self.mapping.state.load();
-        // let inode = self.disk_inode();
-        // if !self.is_reg() || idx >= self.get_chunk_count() {
-        //     return Err(enoent!("invalid chunk info"));
-        // }
-        // let offset = self.offset + inode.size() as usize + self.xattr_size() as usize;
-        // let chunk = state.cast_to_ref::<RafsV5ChunkInfo>(state.base, offset)?;
-        // let wrapper = DirectChunkInfoV6::new(chunk, self.mapping.clone(), offset);
+        let state = self.mapping.state.load();
+        let inode = self.disk_inode();
+        if !self.is_reg() || idx >= self.get_chunk_count() {
+             return Err(enoent!("invalid chunk info"));
+        }
+        let offset = self.offset as usize + round_up(
+            self.this_inode_size() as u64 + self.xattr_size() as u64,
+            size_of::<RafsV6InodeChunkAddr>() as u64,
+        ) as usize + (idx as usize * size_of::<RafsV6InodeChunkAddr>());
 
-        // Ok(Arc::new(wrapper))
-        self.mapping.get_chunk_info(idx as usize)
+        let chunk_addr = state.cast_to_ref::<RafsV6InodeChunkAddr>(state.base, offset)?;
+
+        let mut find = None;
+
+        CHUNK_DICT_MAP.with(|dict| {
+            if dict.borrow().is_none() {
+                *dict.borrow_mut() = Some(self.mapping.load_chunk_map().unwrap());
+            }
+            find = dict.borrow().as_ref().unwrap().get(chunk_addr).map(|value| Arc::clone(value));
+            let mut ok = true;
+            if find.is_none() {
+                ok = false;
+            }
+            println!("{}", ok);
+        });
+        
+        find.ok_or_else(|| enoent!("can't find chunk info"))
     }
 
     fn get_xattr(&self, name: &OsStr) -> Result<Option<XattrValue>> {
