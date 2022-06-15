@@ -4,12 +4,15 @@
 
 //! Handler to cooperate with Linux fscache subsystem for blob cache.
 
-use std::cmp;
+use std::cell::Cell;
+use std::{cmp, fs};
 use std::collections::hash_map::Entry::Vacant;
 use std::collections::HashMap;
 use std::convert::TryFrom;
+use std::ffi::CStr;
 use std::fs::{File, OpenOptions};
 use std::io::{Error, ErrorKind, Result, Write};
+use std::mem::MaybeUninit;
 use std::ops::Deref;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 use std::ptr::read_unaligned;
@@ -227,6 +230,12 @@ pub struct FsCacheHandler {
     state: Arc<Mutex<FsCacheState>>,
     poller: Mutex<Poll>,
     waker: Arc<Waker>,
+    dir: String,
+    cache_dir: String,
+    graveyard_dir: String,
+    // The culling watermark
+    fcull: u64,
+    bcull: u64,
 }
 
 impl FsCacheHandler {
@@ -242,7 +251,8 @@ impl FsCacheHandler {
             dir,
             tag.unwrap_or("<None>")
         );
-
+        let cache_dir = dir + "/cache";
+        let graveyard_dir = dir + "/graveyard";
         let mut file = OpenOptions::new()
             .write(true)
             .read(true)
@@ -257,7 +267,7 @@ impl FsCacheHandler {
             .register(
                 &mut SourceFd(&file.as_raw_fd()),
                 Token(TOKEN_EVENT_FSCACHE),
-                Interest::READABLE,
+                Interest::READABLE | Interest::WRITABLE,
             )
             .map_err(|_e| eother!("fscache: failed to register fd for service"))?;
 
@@ -277,6 +287,12 @@ impl FsCacheHandler {
             blob_cache_mgr,
         };
 
+        let (fcull, bcull) = if let Some(st) = Self::get_culling_state(dir.clone())  {
+           (st.f_files * 0.95, st.f_blocks * 0.95)
+        } else {
+            (u64::MAX, u64::MAX)
+        };
+
         Ok(FsCacheHandler {
             active: AtomicBool::new(true),
             barrier: Barrier::new(2),
@@ -284,6 +300,11 @@ impl FsCacheHandler {
             state: Arc::new(Mutex::new(state)),
             poller: Mutex::new(poller),
             waker: Arc::new(waker),
+            dir,
+            cache_dir,
+            graveyard_dir,
+            fcull,
+            bcull
         })
     }
 
@@ -322,6 +343,8 @@ impl FsCacheHandler {
                 if event.token() == Token(TOKEN_EVENT_FSCACHE) {
                     if event.is_readable() {
                         self.handle_requests(&mut buf)?;
+                    } else if event.is_writable() {
+                        self.handle_culls()?;
                     }
                 } else if event.is_readable()
                     && event.token() == Token(TOKEN_EVENT_WAKER)
@@ -428,6 +451,15 @@ impl FsCacheHandler {
             format!("copen {},{}", hdr.msg_id, -libc::EALREADY)
         }
     }
+
+    fn handle_culls(&self) -> Result<()> {
+        // ToDo: Received the POLLOUT which indicates culling is required
+        todo!()
+    }
+
+    fn do_cull(&self) -> Result<()> {
+        todo!()
+    } 
 
     fn do_prefetch(&self, config: &BlobCacheConfigDataBlob, blob: Arc<dyn BlobCache>) {
         let blob_info = config.blob_info().deref();
@@ -662,6 +694,45 @@ impl FsCacheHandler {
     #[inline]
     fn get_config(&self, key: &str) -> Option<BlobCacheObjectConfig> {
         self.get_state().blob_cache_mgr.get_config(key)
+    }
+
+    fn get_culling_state(cache_dir: String) -> Result<libc::statvfs64> {
+        // Safe because this is a constant value and a valid C string.
+        let pathname = unsafe { CStr::from_bytes_with_nul_unchecked(cache_dir) };
+        let mut st = MaybeUninit::<libc::statvfs64>::zeroed();
+    
+        // Safe because the kernel will only write data in `st` and we check the return value.
+        let res = unsafe {
+            libc::statvfs64(
+                pathname.as_ptr(),
+                st.as_mut_ptr(),
+            )
+        };
+        if res >= 0 {
+            // Safe because the kernel guarantees that the struct is now fully initialized.
+            Ok(unsafe { st.assume_init() })
+        } else {
+            Err(Error::last_os_error())
+        }
+    }
+
+    fn reap_graveyard(&self) -> Result<()> {
+        Self::reap_graveyard_subdir(self.graveyard_dir)
+    }
+
+    fn reap_graveyard_subdir(dir: &str) -> Result<()> {
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+    
+            if entry.file_type()?.is_dir() {
+                Self::reap_graveyard_subdir(&path)?;
+                fs::remove_dir(path)?;
+            } else {
+                fs::remove_file(path)?;
+            }
+        }
+        Ok(())
     }
 }
 
