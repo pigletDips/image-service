@@ -457,9 +457,44 @@ impl FsCacheHandler {
         todo!()
     }
 
-    fn do_cull(&self) -> Result<()> {
-        todo!()
+    fn cull_file(&self, filename: &str) {
+        let mut state = self.state.lock().unwrap();
+        let cull_msg = format!("cull {}", filename);
+        let ret = unsafe {
+            libc::write(
+                self.file.as_raw_fd(),
+                cull_msg.as_bytes().as_ptr() as *const u8 as *const libc::c_void,
+                cull_msg.len(),
+            )
+        };
+        if ret as usize != cull_msg.len() {
+            warn!(
+                "fscache: failed to send cull message \"{}\", {}",
+                cull_msg,
+                Error::last_os_error()
+            );
+        }
     } 
+
+    fn check_if_in_use(&self, filename: &str) -> bool {
+        let mut state = self.state.lock().unwrap();
+        let inuse_msg = format!("inuse {}", filename);
+        let ret = unsafe {
+            libc::write(
+                self.file.as_raw_fd(),
+                inuse_msg.as_bytes().as_ptr() as *const u8 as *const libc::c_void,
+                inuse_msg.len(),
+            )
+        };
+        if ret < 0 {
+            if let Some(err) = Error::last_os_error().raw_os_error() {
+                if err == libc::EBUSY {
+                    return true;
+                }
+            }
+        }
+        false
+    }
 
     fn do_prefetch(&self, config: &BlobCacheConfigDataBlob, blob: Arc<dyn BlobCache>) {
         let blob_info = config.blob_info().deref();
