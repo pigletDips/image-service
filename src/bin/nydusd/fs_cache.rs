@@ -236,6 +236,8 @@ pub struct FsCacheHandler {
     // The culling watermark
     fcull: u64,
     bcull: u64,
+    begin_cull: bool,
+    cull_root: String,
 }
 
 impl FsCacheHandler {
@@ -301,10 +303,12 @@ impl FsCacheHandler {
             poller: Mutex::new(poller),
             waker: Arc::new(waker),
             dir,
+            cull_root: cache_dir.clone(),
             cache_dir,
             graveyard_dir,
             fcull,
-            bcull
+            bcull,
+            begin_cull: false,
         })
     }
 
@@ -345,6 +349,20 @@ impl FsCacheHandler {
                         self.handle_requests(&mut buf)?;
                     } else if event.is_writable() {
                         self.handle_culls()?;
+                    }
+
+                    if self.begin_cull {
+                        
+                        // do one round cull
+                        if self.cull_root == self.cache_dir {
+                            self.begin_cull = false;
+                            self.reap_graveyard()?;
+                        }
+                    } else if let Some(st) = Self::get_culling_state(&self.dir)  {
+                        let (curr_blocks, curr_files) = (st.f_bfree, st.f_ffree);
+                        if curr_blocks >= self.bcull || curr_files >= self.fcull {
+                            self.begin_cull = true;
+                        }
                     }
                 } else if event.is_readable()
                     && event.token() == Token(TOKEN_EVENT_WAKER)
