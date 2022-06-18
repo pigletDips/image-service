@@ -67,6 +67,29 @@ impl TryFrom<u32> for FsCacheOpCode {
     }
 }
 
+enum FsCacheObjType {
+	ObjTypeIndex,
+	ObjTypeData,
+	ObjTypeSpecial,
+	ObjTypeIntermediate,
+    ObjTypeUnknown,
+}
+
+impl FsCacheObjType {
+    fn get_fscache_objtype(file: &str) -> FsCacheObject {
+        match file[0] {
+            'I' => Self::ObjTypeIndex,
+            'J' => Self::ObjTypeIndex,
+            'D' => Self::ObjTypeData,
+            'E' => Self::ObjTypeData,
+            'S' => Self::ObjTypeSpecial,
+            'T' => Self::ObjTypeSpecial,
+            '+' => Self::ObjTypeIntermediate,
+            '@' => Self::ObjTypeIntermediate,
+             _ => Self::ObjTypeUnknown,
+        }
+    }
+}
 /// Common header for request messages.
 #[repr(C)]
 #[derive(Debug, Eq, PartialEq)]
@@ -233,11 +256,6 @@ pub struct FsCacheHandler {
     dir: String,
     cache_dir: String,
     graveyard_dir: String,
-    // The culling watermark
-    fcull: u64,
-    bcull: u64,
-    begin_cull: bool,
-    cull_root: String,
 }
 
 impl FsCacheHandler {
@@ -303,12 +321,8 @@ impl FsCacheHandler {
             poller: Mutex::new(poller),
             waker: Arc::new(waker),
             dir,
-            cull_root: cache_dir.clone(),
             cache_dir,
             graveyard_dir,
-            fcull,
-            bcull,
-            begin_cull: false,
         })
     }
 
@@ -350,18 +364,10 @@ impl FsCacheHandler {
                     } else if event.is_writable() {
                         self.handle_culls()?;
                     }
-
-                    if self.begin_cull {
-                        
-                        // do one round cull
-                        if self.cull_root == self.cache_dir {
-                            self.begin_cull = false;
-                            self.reap_graveyard()?;
-                        }
-                    } else if let Some(st) = Self::get_culling_state(&self.dir)  {
-                        let (curr_blocks, curr_files) = (st.f_bfree, st.f_ffree);
-                        if curr_blocks >= self.bcull || curr_files >= self.fcull {
-                            self.begin_cull = true;
+                    if let Some(st) = Self::get_culling_state(&self.dir)  {
+                        let (curr_blocks, curr_files, total_blocks, total_files) = (st.f_bfree, st.f_ffree, st.f_blocks, st.f_files);
+                        if curr_blocks >= total_blocks || curr_files >= total_files{
+                            self.handle_culls()?;
                         }
                     }
                 } else if event.is_readable()
@@ -471,8 +477,12 @@ impl FsCacheHandler {
     }
 
     fn handle_culls(&self) -> Result<()> {
-        // ToDo: Received the POLLOUT which indicates culling is required
-        todo!()
+        self.cull_files("")?;
+        self.reap_graveyard()?;
+    }
+
+    fn cull_files(&self, relative_dir: &str) -> Result<()> {
+
     }
 
     fn cull_file(&self, filename: &str) {
