@@ -68,6 +68,7 @@ impl TryFrom<u32> for FsCacheOpCode {
     }
 }
 
+#[derive(Debug, Eq, PartialEq)]
 enum FsCacheObjType {
     Index,
     Data,
@@ -79,14 +80,10 @@ enum FsCacheObjType {
 impl FsCacheObjType {
     pub fn get_fscache_objtype(filename: &str) -> FsCacheObjType {
         match filename.chars().next().unwrap() {
-            'I' => Self::Index,
-            'J' => Self::Index,
-            'D' => Self::Data,
-            'E' => Self::Data,
-            'S' => Self::Special,
-            'T' => Self::Special,
-            '+' => Self::Intermediate,
-            '@' => Self::Intermediate,
+            'I' | 'J' => Self::Index,
+            'D' | 'E' => Self::Data,
+            'S' | 'T' => Self::Special,
+            '+' | '@' => Self::Intermediate,
             _ => Self::Unknown,
         }
     }
@@ -121,14 +118,16 @@ impl PartialEq for DirEntryWrapper {
     }
 }
 impl Eq for DirEntryWrapper {}
+
+// Reverse cmp logic to turn max-heap into min-heap
 impl PartialOrd for DirEntryWrapper {
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        Some(self.atime.cmp(&other.atime))
+        Some(other.atime.cmp(&self.atime))
     }
 }
 impl Ord for DirEntryWrapper {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
-        self.atime.cmp(&other.atime)
+        other.atime.cmp(&self.atime)
     }
 }
 /// Common header for request messages.
@@ -378,7 +377,7 @@ impl FsCacheHandler {
     pub fn run_loop(&self) -> Result<()> {
         let mut events = Events::with_capacity(64);
         let mut buf = vec![0u8; MIN_DATA_BUF_SIZE];
-        let mut counter = 0;
+        let mut counter = 0usize;
         let mut scan = false;
         let mut cull = false;
         let mut scanned = 0usize;
@@ -531,10 +530,10 @@ impl FsCacheHandler {
 
     fn should_cull(&self) -> bool {
         if let Ok(st) = self.get_culling_state() {
-            let (curr_blocks, curr_files, total_blocks, total_files) =
+            let (free_blocks, free_files, total_blocks, total_files) =
                 (st.f_bfree, st.f_ffree, st.f_blocks, st.f_files);
-            if curr_blocks >= (0.95 * total_blocks as f64) as u64
-                || curr_files >= (0.95 * total_files as f64) as u64
+            if free_blocks <= (0.05 * total_blocks as f64) as u64
+                || free_files <= (0.05 * total_files as f64) as u64
             {
                 return true;
             }
@@ -554,15 +553,21 @@ impl FsCacheHandler {
             let entry = entry?;
             let metadata = entry.metadata()?;
             let filetype = metadata.file_type();
-            if !filetype.is_dir() && !filetype.is_file() {
-                continue;
-            }
             let filename = entry.file_name().to_str().unwrap().to_string();
             let objtype = FsCacheObjType::get_fscache_objtype(&filename);
-            // if filetype == FsCacheObjType::Unknown {
-            //     // todo remove unknow file
-            //     continue;
-            // }
+            // If objtype is not valid, skip this file.
+            // If file is not dir but the objtype is Index or Intermediate, skip this file.
+            // if neither directory nor regular file, skip this file.
+            if objtype == FsCacheObjType::Unknown
+                || (!filetype.is_dir()
+                    && (!filetype.is_file()
+                        || objtype == FsCacheObjType::Index
+                        || objtype == FsCacheObjType::Intermediate))
+            {
+                self.destroy_unexpected_object(entry)?;
+                continue;
+            }
+
             if entry.file_type()?.is_dir() {
                 file_atime_pq =
                     self.scan_cache_dir(Some(file_atime_pq), Some(path.join(filename)))?;
@@ -585,54 +590,45 @@ impl FsCacheHandler {
         for _ in 0..cull_count {
             if let Some(entry) = file_atime_pq.pop() {
                 let metadata = entry.dentry.metadata()?;
+                // If access time changed, skip it.
                 if metadata.accessed()? != entry.atime {
                     continue;
                 }
                 let path = entry.dentry.path();
                 let mut inuse = true;
-                // TODO process file according to obj type
                 match entry.objtype {
+                    // For index and intermediate, check if it is in use,
+                    // by checking if it has child.
                     FsCacheObjType::Index => {
-                        // no subdir then not inuse
-                        // cull it
+                        // For index directory, if no child, cull it.
+                        // However, the cachefiles cull dir by move it to the graveyard.
+                        // We daemon need to mannually clean it.
                         if let Ok(mut entries) = fs::read_dir(path) {
                             if entries.next().is_none() {
                                 inuse = false;
                             }
                         }
                     }
-                    FsCacheObjType::Data => {
-                        inuse = self.check_if_in_use(entry.filepath.as_path());
-                    }
                     FsCacheObjType::Intermediate => {
-                        // no subdir then not inuse
-                        // unlink it
+                        // For intermediate directory, if no child, unlink it.
                         if let Ok(mut entries) = fs::read_dir(path.clone()) {
                             if entries.next().is_none() {
                                 inuse = false;
                             }
                         }
                         if !inuse {
-                            fs::remove_dir_all(path)?;
+                            fs::remove_dir(path)?;
                             continue;
                         }
                     }
-                    FsCacheObjType::Special => {
+                    FsCacheObjType::Data | FsCacheObjType::Special => {
                         inuse = self.check_if_in_use(&entry.filepath);
                     }
-                    FsCacheObjType::Unknown => {
-                        //todo unlink(path)?;
-                        let filetype = metadata.file_type();
-                        if !filetype.is_dir() {
-                            fs::remove_file(path)?;
-                        } else {
-                            fs::rename(path, self.graveyard_dir.join(entry.dentry.file_name()))?;
-                        }
-                        continue;
+                    _ => {
+                        // TODO this should be an error
                     }
                 }
                 if !inuse {
-                    // todo file path is not right yet
                     self.cull_file(entry.filepath.as_path());
                 }
             }
@@ -701,6 +697,17 @@ impl FsCacheHandler {
             }
         }
         false
+    }
+
+    fn destroy_unexpected_object(&self, entry: DirEntry) -> Result<()> {
+        if entry.metadata()?.is_dir() {
+            // If it is a directory, move it and its contents to graveyard.
+            fs::rename(entry.path(), self.graveyard_dir.join(entry.file_name()))?;
+        } else {
+            // Else just remove it.
+            fs::remove_file(entry.path())?;
+        }
+        Ok(())
     }
 
     fn do_prefetch(&self, config: &BlobCacheConfigDataBlob, blob: Arc<dyn BlobCache>) {
@@ -955,23 +962,32 @@ impl FsCacheHandler {
     }
 
     fn reap_graveyard(&self) -> Result<()> {
-        Self::reap_graveyard_subdir(&self.graveyard_dir)
-    }
-
-    fn reap_graveyard_subdir(dir: &PathBuf) -> Result<()> {
-        // fs::remove_dir_all
-        for entry in fs::read_dir(dir)? {
+        for entry in fs::read_dir(&self.graveyard_dir)? {
             let entry = entry?;
             let path = entry.path();
             if entry.file_type()?.is_dir() {
-                Self::reap_graveyard_subdir(&path)?;
-                fs::remove_dir(path)?;
+                fs::remove_dir_all(path)?;
             } else {
                 fs::remove_file(path)?;
             }
         }
         Ok(())
     }
+
+    // fn reap_graveyard_subdir(dir: &PathBuf) -> Result<()> {
+    //     // fs::remove_dir_all
+    //     for entry in fs::read_dir(dir)? {
+    //         let entry = entry?;
+    //         let path = entry.path();
+    //         if entry.file_type()?.is_dir() {
+    //             Self::reap_graveyard_subdir(&path)?;
+    //             fs::remove_dir(path)?;
+    //         } else {
+    //             fs::remove_file(path)?;
+    //         }
+    //     }
+    //     Ok(())
+    // }
 }
 
 impl AsRawFd for FsCacheHandler {
