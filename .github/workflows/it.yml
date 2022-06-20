@@ -115,4 +115,4 @@ jobs:
         sudo mkdir -p /blobdir
         sudo python3 nydus_test_config.py --dist fs_structure.yaml
         #sudo pytest -vs --durations=0 --pdb functional-test/test_nydus.py functional-test/test_layered_image.py functional-test/test_api.py
-        sudo pytest -vs --durations=0 --pdb functional-test/test_backend_swap.py
+        sudo pytest -vs --durations=0 --pdb functional-test/test_api.py::test_backend_swap
