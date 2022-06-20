@@ -123,7 +123,6 @@ def test_global_metrics(nydus_anchor, nydus_image: RafsImage, rafs_conf: RafsCon
     rafs.umount()
 
 
-@pytest.mark.skip(reason="backend swap keeps get response 500 for no reason.")
 def test_backend_swap(
     nydus_anchor, nydus_scratch_image: RafsImage, rafs_conf: RafsConf
 ):
