@@ -109,10 +109,66 @@ jobs:
         }
         EOF
 
-    - name: run IT
+    # - name: run test_api
+    #   run: |
+    #     cd /home/runner/work/image-service/image-service/contrib/nydus-test
+    #     sudo mkdir -p /blobdir
+    #     sudo python3 nydus_test_config.py --dist fs_structure.yaml
+    #     # sudo pytest -vs --durations=0 --pdb functional-test/test_nydus.py functional-test/test_layered_image.py functional-test/test_api.py
+    #     # sudo pytest -vs --durations=0 --pdb functional-test/test_api.py::test_backend_swap
+    #     # sudo pytest -vs --durations=0 --pdb functional-test/test_api.py
+    # - name: run test_nydus
+    #   run: |
+    #     cd /home/runner/work/image-service/image-service/contrib/nydus-test
+    #     sudo mkdir -p /blobdir
+    #     sudo python3 nydus_test_config.py --dist fs_structure.yaml
+    #     sudo pytest -vs --durations=0 --pdb functional-test/test_nydus.py
+    # - name: run test_layered_image
+    #   run: |
+    #     cd /home/runner/work/image-service/image-service/contrib/nydus-test
+    #     sudo mkdir -p /blobdir
+    #     sudo python3 nydus_test_config.py --dist fs_structure.yaml
+    #     sudo pytest -vs --durations=0 --pdb functional-test/test_layered_image.py
+    - name: run test_fault
       run: |
         cd /home/runner/work/image-service/image-service/contrib/nydus-test
         sudo mkdir -p /blobdir
         sudo python3 nydus_test_config.py --dist fs_structure.yaml
-        #sudo pytest -vs --durations=0 --pdb functional-test/test_nydus.py functional-test/test_layered_image.py functional-test/test_api.py
-        sudo pytest -vs --durations=0 --pdb functional-test/test_api.py
+        sudo pytest -vs --durations=0 --pdb functional-test/test_fault.py
+    - name: run test_image_compatibility
+      run: |
+        cd /home/runner/work/image-service/image-service/contrib/nydus-test
+        sudo mkdir -p /blobdir
+        sudo python3 nydus_test_config.py --dist fs_structure.yaml
+        sudo pytest -vs --durations=0 --pdb functional-test/test_image_compatibility.py
+    - name: run test_nydusify
+      run: |
+        cd /home/runner/work/image-service/image-service/contrib/nydus-test
+        sudo mkdir -p /blobdir
+        sudo python3 nydus_test_config.py --dist fs_structure.yaml
+        sudo pytest -vs --durations=0 --pdb functional-test/test_nydusify.py
+    - name: run test_private
+      run: |
+        cd /home/runner/work/image-service/image-service/contrib/nydus-test
+        sudo mkdir -p /blobdir
+        sudo python3 nydus_test_config.py --dist fs_structure.yaml
+        sudo pytest -vs --durations=0 --pdb functional-test/test_private.py
+    - name: run test_snapshotter
+      run: |
+        cd /home/runner/work/image-service/image-service/contrib/nydus-test
+        sudo mkdir -p /blobdir
+        sudo python3 nydus_test_config.py --dist fs_structure.yaml
+        sudo pytest -vs --durations=0 --pdb functional-test/test_snapshotter.py
+    - name: run test_stargz
+      run: |
+        cd /home/runner/work/image-service/image-service/contrib/nydus-test
+        sudo mkdir -p /blobdir
+        sudo python3 nydus_test_config.py --dist fs_structure.yaml
+        sudo pytest -vs --durations=0 --pdb functional-test/test_stargz.py
+    - name: run test_stress
+      run: |
+        cd /home/runner/work/image-service/image-service/contrib/nydus-test
+        sudo mkdir -p /blobdir
+        sudo python3 nydus_test_config.py --dist fs_structure.yaml
+        sudo pytest -vs --durations=0 --pdb functional-test/test_stress.py
+    

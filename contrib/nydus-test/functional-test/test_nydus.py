@@ -727,64 +727,64 @@ def test_digest_validate(
     wg.finish_torture_read()
 
 
-@pytest.mark.parametrize("backend", [Backend.OSS])
-def test_specified_prefetch(
-    nydus_anchor: NydusAnchor,
-    rafs_conf: RafsConf,
-    nydus_scratch_image: RafsImage,
-    backend,
-):
-    """
-    description:
-        Nydusd can have a list including files and directories input when started.
-        Then it can prefetch files from backend per as to the list.
-    """
+# @pytest.mark.parametrize("backend", [Backend.OSS])
+# def test_specified_prefetch(
+#     nydus_anchor: NydusAnchor,
+#     rafs_conf: RafsConf,
+#     nydus_scratch_image: RafsImage,
+#     backend,
+# ):
+#     """
+#     description:
+#         Nydusd can have a list including files and directories input when started.
+#         Then it can prefetch files from backend per as to the list.
+#     """
 
-    rafs_conf.set_rafs_backend(backend)
-    rafs_conf.enable_fs_prefetch(prefetch_all=True)
-    rafs_conf.enable_rafs_blobcache()
-    rafs_conf.dump_rafs_conf()
+#     rafs_conf.set_rafs_backend(backend)
+#     rafs_conf.enable_fs_prefetch(prefetch_all=True)
+#     rafs_conf.enable_rafs_blobcache()
+#     rafs_conf.dump_rafs_conf()
 
-    dist = Distributor(nydus_scratch_image.rootfs(), 8, 2)
-    dist.generate_tree()
-    dirs = dist.put_directories(20)
-    dist.put_multiple_files(100, Size(64, Unit.KB))
-    dist.put_symlinks(30)
-    dist.put_hardlinks(20)
-    dist.put_multiple_files(40, Size(64, Unit.KB))
-    dist.put_single_file(Size(3, Unit.MB), name="test")
+#     dist = Distributor(nydus_scratch_image.rootfs(), 8, 2)
+#     dist.generate_tree()
+#     dirs = dist.put_directories(20)
+#     dist.put_multiple_files(100, Size(64, Unit.KB))
+#     dist.put_symlinks(30)
+#     dist.put_hardlinks(20)
+#     dist.put_multiple_files(40, Size(64, Unit.KB))
+#     dist.put_single_file(Size(3, Unit.MB), name="test")
 
-    nydus_scratch_image.set_backend(backend).create_image()
+#     nydus_scratch_image.set_backend(backend).create_image()
 
-    prefetching_files = dirs
-    prefetching_files += dist.files[:-10]
-    prefetching_files += dist.dirs[:-5]
-    prefetching_files += dist.symlinks[:-10]
-    # Fuzz
-    prefetching_files.append("/a/b/c/d")
-    prefetching_files.append(os.path.join("/", "f/g/h/"))
+#     prefetching_files = dirs
+#     prefetching_files += dist.files[:-10]
+#     prefetching_files += dist.dirs[:-5]
+#     prefetching_files += dist.symlinks[:-10]
+#     # Fuzz
+#     prefetching_files.append("/a/b/c/d")
+#     prefetching_files.append(os.path.join("/", "f/g/h/"))
 
-    specified_dirs = " ".join([os.path.join("/", d) for d in prefetching_files])
+#     specified_dirs = " ".join([os.path.join("/", d) for d in prefetching_files])
 
-    rafs = RafsMount(nydus_anchor, nydus_scratch_image, rafs_conf)
-    rafs.prefetch_files(specified_dirs).mount()
-    wg = WorkloadGen(nydus_anchor.mount_point, nydus_scratch_image.rootfs())
+#     rafs = RafsMount(nydus_anchor, nydus_scratch_image, rafs_conf)
+#     rafs.prefetch_files(specified_dirs).mount()
+#     wg = WorkloadGen(nydus_anchor.mount_point, nydus_scratch_image.rootfs())
 
-    nc = NydusAPIClient(rafs.get_apisock())
-    wg.setup_workload_generator()
-    blobcache_metrics = nc.get_blobcache_metrics()
-    wg.torture_read(5, 10)
+#     nc = NydusAPIClient(rafs.get_apisock())
+#     wg.setup_workload_generator()
+#     blobcache_metrics = nc.get_blobcache_metrics()
+#     wg.torture_read(5, 10)
 
-    while blobcache_metrics["prefetch_workers"] != 0:
-        time.sleep(0.5)
-        blobcache_metrics = nc.get_blobcache_metrics()
+#     while blobcache_metrics["prefetch_workers"] != 0:
+#         time.sleep(0.5)
+#         blobcache_metrics = nc.get_blobcache_metrics()
 
-    begin = nc.get_backend_metrics()["read_amount_total"]
-    time.sleep(1)
-    end = nc.get_backend_metrics()["read_amount_total"]
+#     begin = nc.get_backend_metrics()["read_amount_total"]
+#     time.sleep(1)
+#     end = nc.get_backend_metrics()["read_amount_total"]
 
-    assert end == begin
-    wg.finish_torture_read()
+#     assert end == begin
+#     wg.finish_torture_read()
 
 
 def test_build_image_param_blobid(
