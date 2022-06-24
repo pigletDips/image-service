@@ -571,7 +571,7 @@ class RafsMount(utils.ArtifactProcess):
         self.mount_params.mountpoint(self.mount_point).config(self.conf.path())
 
         if self.rafs_image is not None:
-            self.mount_params.bootstrap(self.rafs_image.bootstrap_path)
+            self.mount_params.bootstrap(self.rafs_image.bootstrap_name)
 
     def _wait_for_mount(self, test_fn=os.path.ismount):
         elapsed = 0
