@@ -50,12 +50,12 @@ def put_files(dist: Distributor, f_type, count, size):
     if f_type == "regular":
         size_in_bytes = utils.parse_size(size)
         dist.put_multiple_files(count, Size(size_in_bytes))
-    elif f_type == "dir":
-        dist.put_directories(count)
-    elif f_type == "symlink":
-        dist.put_symlinks(count)
-    elif f_type == "hardlink":
-        dist.put_hardlinks(count)
+    # elif f_type == "dir":
+    #     dist.put_directories(count)
+    # elif f_type == "symlink":
+    #     dist.put_symlinks(count)
+    # elif f_type == "hardlink":
+    #     dist.put_hardlinks(count)
 
 
 if __name__ == "__main__":

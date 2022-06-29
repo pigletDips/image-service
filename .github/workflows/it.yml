@@ -89,7 +89,7 @@ jobs:
             },
             "images": {
                 "images_array": [
-                    "busybox:latest"
+                    "hello-world:latest"
                 ]
             },
             "artifacts": {
@@ -100,12 +100,13 @@ jobs:
             "target": "musl"
         }
         EOF
-    - name: run test_api
+    - name: run integration tests
       run: |
         cd /home/runner/work/image-service/image-service/contrib/nydus-test
         sudo mkdir -p /blobdir
         sudo python3 nydus_test_config.py --dist fs_structure.yaml
-        sudo pytest -vs --durations=0 --pdb functional-test/test_api.py::test_detect_io_hang \
-                                  functional-test/test_api.py::test_access_pattern \
-                                  functional-test/test_api.py::test_api_mount_with_prefetch \
-                                  functional-test/test_api.py::test_daemon_info
+        # sudo pytest -vs --durations=0 --pdb functional-test/test_api.py::test_detect_io_hang \
+        #                           functional-test/test_api.py::test_access_pattern \
+        #                           functional-test/test_api.py::test_api_mount_with_prefetch \
+        #                           functional-test/test_api.py::test_daemon_info
+        sudo pytest -vs --durations=0 --pdb functional-test/test_stargz.py

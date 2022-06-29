@@ -127,7 +127,9 @@ pub fn decompress(
         Algorithm::Lz4Block => lz4_decompress(src, dst),
         Algorithm::GZip => {
             if let Some(f) = src_file {
-                let mut gz = GzDecoder::new(BufReader::new(f));
+                let mut buf = vec![];
+                BufReader::new(f).read_to_end(&mut buf)?;
+                let mut gz = GzDecoder::new(&buf[..]);
                 gz.read_exact(dst)?;
             } else {
                 let mut gz = GzDecoder::new(src);

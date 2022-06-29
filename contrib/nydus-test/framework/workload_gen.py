@@ -179,11 +179,13 @@ class WorkloadGen:
                 source_path = os.path.join(self.verify_dir, relpath)
 
                 if os.path.islink(cur_path):
+                    logging.debug("Verifying link file.");
                     if os.readlink(cur_path) != os.readlink(source_path):
                         err_cnt += 1
                         logging.error("Symlink mismatch, %s", cur_path)
                 elif os.path.isfile(cur_path):
                     # TODO: How to verify special files?
+                    logging.debug("Verifying regular file.");
                     cur_md5 = WorkloadGen.calc_file_md5(cur_path)
                     source_md5 = WorkloadGen.calc_file_md5(source_path)
                     if cur_md5 != source_md5:
@@ -191,8 +193,10 @@ class WorkloadGen:
                         logging.error("Verification error. File %s", cur_path)
                         assert False
                 elif stat.S_ISBLK(os.stat(cur_path).st_mode):
+                    logging.debug("Verifying block device.");
                     assert os.stat(cur_path).st_rdev == os.stat(source_path).st_rdev
                 elif stat.S_ISCHR(os.stat(cur_path).st_mode):
+                    logging.debug("Verifying char device.");
                     assert os.stat(cur_path).st_rdev == os.stat(source_path).st_rdev
                 elif stat.S_ISFIFO(os.stat(cur_path).st_mode):
                     pass
